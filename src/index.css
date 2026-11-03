@@ -1,0 +1,49 @@
+@import "tailwindcss";
+
+body {
+  background-color: #0b0f17;
+  color: #e2e8f0;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  margin: 0;
+}
+
+/* 🌟 Animación de brillo infinito para "Osmar Figuras" */
+@keyframes glowPulse {
+  0% {
+    text-shadow: 0 0 8px rgba(250, 204, 21, 0.4), 0 0 16px rgba(250, 204, 21, 0.2);
+  }
+  50% {
+    text-shadow: 0 0 25px rgba(250, 204, 21, 0.9), 0 0 40px rgba(250, 204, 21, 0.5), 0 0 60px rgba(250, 204, 21, 0.3);
+  }
+  100% {
+    text-shadow: 0 0 8px rgba(250, 204, 21, 0.4), 0 0 16px rgba(250, 204, 21, 0.2);
+  }
+}
+
+.glow-title {
+  color: #facc15;
+  animation: glowPulse 2.5s ease-in-out infinite;
+}
+
+/* 🎯 Animación fluida al pasar el mouse por los botones laterales */
+.btn-sidebar {
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.btn-sidebar:hover {
+  transform: translateX(5px);
+  background: rgba(250, 204, 21, 0.08);
+  border-color: rgba(250, 204, 21, 0.4);
+  box-shadow: 0 0 15px rgba(250, 204, 21, 0.15);
+}
+
+/* Tarjetas de figuras con animación hover */
+.card-figure {
+  transition: transform 0.3s ease, box-shadow 0.3s ease, border-color 0.3s ease;
+}
+
+.card-figure:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 12px 25px rgba(0, 0, 0, 0.6);
+  border-color: rgba(250, 204, 21, 0.3);
+}
