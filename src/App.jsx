@@ -5,7 +5,7 @@ import {
   ChevronDown, Check, Mail, Lock, X, Trash2, AlertCircle, Upload 
 } from 'lucide-react';
 
-const API_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:5000/api' : '');
+const API_URL = (import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:5000/api' : '')).replace(/\/+$/, '');
 if (!API_URL) throw new Error('Configura VITE_API_URL con la URL del backend antes de compilar para producción.');
 const API_ORIGIN = API_URL.replace(/\/api\/?$/, '');
 
