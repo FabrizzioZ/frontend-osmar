@@ -248,7 +248,7 @@ export default function App() {
         {/* Se aplica la clase animate-fly-up cuando isExiting pasa a true */}
         <div className={`w-full max-w-md bg-white border border-gray-200 rounded-2xl p-8 shadow-2xl relative z-10 ${isExiting ? 'animate-fly-up' : 'animate-zoom-in'}`}>
           <h1 className="text-4xl font-extrabold text-center tracking-wider mb-1 text-gray-900 animate-fade-in-down">
-            Osmar Figuras
+            Osmar Figuras V2
           </h1>
           <p className="text-center text-gray-500 text-xs tracking-widest uppercase mb-6 animate-fade-in-down">
             Accede a tu colección personal
