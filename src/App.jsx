@@ -5,10 +5,22 @@ import {
   ChevronDown, Check, Mail, Lock, X, Trash2, AlertCircle, Upload 
 } from 'lucide-react';
 
-const API_URL = 'http://localhost:5000/api';
+const API_URL = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:5000/api' : '');
+if (!API_URL) throw new Error('Configura VITE_API_URL con la URL del backend antes de compilar para producción.');
+const API_ORIGIN = API_URL.replace(/\/api\/?$/, '');
+
+function getImageUrl(imageUrl) {
+  if (!imageUrl) return 'https://via.placeholder.com/200x250/e2e8f0/cbd5e1?text=Figura';
+  // Normalize URLs saved by the previous local-only backend.
+  if (API_ORIGIN && /^http:\/\/localhost:\d+\/uploads\//.test(imageUrl)) {
+    return `${API_ORIGIN}${imageUrl.replace(/^http:\/\/localhost:\d+/, '')}`;
+  }
+  return imageUrl;
+}
 
 export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isExiting, setIsExiting] = useState(false);
   const [isLoginTab, setIsLoginTab] = useState(true);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -85,15 +97,21 @@ export default function App() {
         if (response.data.token) {
           localStorage.setItem('token', response.data.token);
         }
-        setIsAuthenticated(true);
+        
+        // 1. Activamos la animación de vuelo hacia arriba
+        setIsExiting(true);
+        
+        // 2. Esperamos exactamente 600ms a que termine la animación antes de cambiar de página
+        setTimeout(() => {
+          setIsAuthenticated(true);
+        }, 600);
       }
     } catch (error) {
       console.error("Error en autenticación:", error);
       setErrorMessage(
         error.response?.data?.message || 
-        'No se pudo conectar con el servidor. ¿Tienes encendido el backend?'
+        'No se pudo conectar con el servidor. Verifica la conexión e inténtalo de nuevo.'
       );
-    } finally {
       setLoading(false);
     }
   };
@@ -226,12 +244,13 @@ export default function App() {
 
   if (!isAuthenticated) {
     return (
-      <div className="min-h-screen bg-[#f8fafc] flex items-center justify-center p-4 relative overflow-hidden">
-        <div className="w-full max-w-md bg-white border border-gray-200 rounded-2xl p-8 shadow-xl relative z-10">
-          <h1 className="text-4xl font-extrabold text-center tracking-wider mb-1 text-gray-900">
+      <div className="min-h-screen gamer-bg flex items-center justify-center p-4 relative overflow-hidden">
+        {/* Se aplica la clase animate-fly-up cuando isExiting pasa a true */}
+        <div className={`w-full max-w-md bg-white border border-gray-200 rounded-2xl p-8 shadow-2xl relative z-10 ${isExiting ? 'animate-fly-up' : 'animate-zoom-in'}`}>
+          <h1 className="text-4xl font-extrabold text-center tracking-wider mb-1 text-gray-900 animate-fade-in-down">
             Osmar Figuras
           </h1>
-          <p className="text-center text-gray-500 text-xs tracking-widest uppercase mb-6">
+          <p className="text-center text-gray-500 text-xs tracking-widest uppercase mb-6 animate-fade-in-down">
             Accede a tu colección personal
           </p>
 
@@ -291,7 +310,7 @@ export default function App() {
             <button 
               type="submit" 
               disabled={loading}
-              className="w-full py-3 mt-2 bg-gradient-to-r from-amber-500 to-yellow-500 text-white font-bold text-sm rounded-lg shadow-md hover:shadow-lg transition"
+              className="w-full py-3 mt-2 bg-gradient-to-r from-amber-500 to-yellow-500 text-white font-bold text-sm rounded-lg shadow-md hover:shadow-lg transition cursor-pointer"
             >
               {loading ? 'Conectando...' : (isLoginTab ? 'Entrar' : 'Registrar Cuenta')}
             </button>
@@ -303,10 +322,10 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-[#f8fafc] text-gray-800 flex">
-      {/* BARRA LATERAL BEIGE */}
-      <aside className="w-64 border-r border-amber-900/10 p-5 flex flex-col justify-between min-h-screen bg-[#f5f2eb]">
+      {/* BARRA LATERAL BEIGE CON ANIMACIÓN DE ENTRADA Y BOTONES FLOTANTES */}
+      <aside className="w-64 border-r border-amber-900/10 p-5 flex flex-col justify-between min-h-screen bg-[#f5f2eb] animate-slide-in-up">
         <div>
-          <div className="flex items-center gap-2 mb-8">
+          <div className="flex items-center gap-2 mb-8 animate-floating">
             <Crown className="w-5 h-5 text-amber-600" />
             <div>
               <span className="font-bold text-sm block leading-tight text-gray-900">Osmar Figuras</span>
@@ -315,10 +334,10 @@ export default function App() {
           </div>
 
           <div className="space-y-3">
-            <div className="relative">
+            <div className="relative animate-floating" style={{ animationDelay: '0.1s' }}>
               <button 
                 onClick={() => setShowCategoryFilterDropdown(!showCategoryFilterDropdown)}
-                className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-lg border border-amber-900/10 text-sm font-medium bg-white text-gray-800 shadow-sm"
+                className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-lg border border-amber-900/10 text-sm font-medium bg-white text-gray-800 shadow-sm hover:shadow-md transition cursor-pointer"
               >
                 <span className="truncate">{selectedCategoryFilter}</span>
                 <ChevronDown className="w-4 h-4 text-gray-500 flex-shrink-0" />
@@ -350,10 +369,10 @@ export default function App() {
               )}
             </div>
 
-            <div className="relative">
+            <div className="relative animate-floating" style={{ animationDelay: '0.2s' }}>
               <button 
                 onClick={() => setShowSortDropdown(!showSortDropdown)}
-                className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-lg border border-amber-900/10 text-sm font-medium bg-white text-gray-800 shadow-sm"
+                className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-lg border border-amber-900/10 text-sm font-medium bg-white text-gray-800 shadow-sm hover:shadow-md transition cursor-pointer"
               >
                 <div className="flex items-center gap-2 truncate">
                   <Clock className="w-4 h-4 text-gray-500 flex-shrink-0" />
@@ -378,21 +397,25 @@ export default function App() {
               )}
             </div>
 
-            <button 
-              onClick={() => setShowCategoryModal(true)}
-              className="w-full flex items-center gap-2 px-3.5 py-2.5 rounded-lg border border-amber-900/10 text-sm font-medium bg-white text-gray-800 hover:bg-gray-50 shadow-sm transition"
-            >
-              <Tag className="w-4 h-4 text-gray-500" />
-              <span>Categorías</span>
-            </button>
+            <div className="animate-floating" style={{ animationDelay: '0.3s' }}>
+              <button 
+                onClick={() => setShowCategoryModal(true)}
+                className="w-full flex items-center gap-2 px-3.5 py-2.5 rounded-lg border border-amber-900/10 text-sm font-medium bg-white text-gray-800 hover:bg-gray-50 shadow-sm transition cursor-pointer"
+              >
+                <Tag className="w-4 h-4 text-gray-500" />
+                <span>Categorías</span>
+              </button>
+            </div>
 
-            <button 
-              onClick={() => setShowAddFigureModal(true)}
-              className="w-full mt-4 flex items-center justify-center gap-2 px-3.5 py-3 rounded-lg border border-amber-600/40 text-amber-700 bg-amber-50/50 hover:bg-amber-100/50 transition text-sm font-semibold shadow-sm"
-            >
-              <PlusCircle className="w-4 h-4" />
-              <span>+ Agregar Figura</span>
-            </button>
+            <div className="animate-floating" style={{ animationDelay: '0.4s' }}>
+              <button 
+                onClick={() => setShowAddFigureModal(true)}
+                className="w-full mt-2 flex items-center justify-center gap-2 px-3.5 py-3 rounded-lg border border-amber-600/40 text-amber-700 bg-amber-50/50 hover:bg-amber-100/50 transition text-sm font-semibold shadow-sm cursor-pointer"
+              >
+                <PlusCircle className="w-4 h-4" />
+                <span>+ Agregar Figura</span>
+              </button>
+            </div>
           </div>
         </div>
 
@@ -403,7 +426,7 @@ export default function App() {
 
       {/* CONTENIDO PRINCIPAL */}
       <main className="flex-1 p-8 overflow-y-auto">
-        <h1 className="text-5xl font-black text-center mb-8 tracking-wide text-gray-900">
+        <h1 className="text-5xl font-black text-center mb-8 tracking-wide text-gray-900 animate-slide-in-up">
           Osmar Figuras
         </h1>
 
@@ -441,7 +464,7 @@ export default function App() {
               <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition z-10 flex gap-1">
                 <button 
                   onClick={() => handleDeleteFigure(fig._id || fig.id)}
-                  className="p-1.5 bg-red-600/80 hover:bg-red-600 text-white rounded-lg backdrop-blur-sm transition"
+                  className="p-1.5 bg-red-600/80 hover:bg-red-600 text-white rounded-lg backdrop-blur-sm transition cursor-pointer"
                   title="Eliminar figura"
                 >
                   <Trash2 className="w-4 h-4" />
@@ -450,7 +473,7 @@ export default function App() {
 
               <div className="h-56 bg-gray-100 relative overflow-hidden flex items-center justify-center p-2">
                 <img 
-                  src={fig.imageUrl || 'https://via.placeholder.com/200x250/e2e8f0/cbd5e1?text=Figura'} 
+                  src={getImageUrl(fig.imageUrl)} 
                   alt={fig.name} 
                   className="h-full object-contain hover:scale-105 transition duration-300" 
                 />
@@ -485,7 +508,7 @@ export default function App() {
                 <PlusCircle className="w-5 h-5 text-amber-600" />
                 <h3 className="text-lg font-bold text-gray-900">Agregar Nueva Figura</h3>
               </div>
-              <button onClick={() => setShowAddFigureModal(false)} className="text-gray-400 hover:text-gray-700">
+              <button onClick={() => setShowAddFigureModal(false)} className="text-gray-400 hover:text-gray-700 cursor-pointer">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -509,7 +532,7 @@ export default function App() {
                   <select 
                     value={newFigure.category}
                     onChange={(e) => setNewFigure({...newFigure, category: e.target.value})}
-                    className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 outline-none focus:border-amber-500"
+                    className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 outline-none focus:border-amber-500 cursor-pointer"
                   >
                     {categories.map(cat => (
                       <option key={cat._id || cat.id} value={cat.name}>{cat.name}</option>
@@ -560,13 +583,13 @@ export default function App() {
                 <button 
                   type="button"
                   onClick={() => setShowAddFigureModal(false)}
-                  className="px-4 py-2 rounded-lg border border-gray-200 text-gray-700 text-sm hover:bg-gray-100 transition"
+                  className="px-4 py-2 rounded-lg border border-gray-200 text-gray-700 text-sm hover:bg-gray-100 transition cursor-pointer"
                 >
                   Cancelar
                 </button>
                 <button 
                   type="submit"
-                  className="px-5 py-2 rounded-lg bg-amber-600 text-white font-bold text-sm hover:bg-amber-700 transition"
+                  className="px-5 py-2 rounded-lg bg-amber-600 text-white font-bold text-sm hover:bg-amber-700 transition cursor-pointer"
                 >
                   Guardar Figura
                 </button>
@@ -585,7 +608,7 @@ export default function App() {
                 <Tag className="w-5 h-5 text-amber-600" />
                 <h3 className="text-lg font-bold text-gray-900">Gestionar Categorías</h3>
               </div>
-              <button onClick={() => setShowCategoryModal(false)} className="text-gray-400 hover:text-gray-700">
+              <button onClick={() => setShowCategoryModal(false)} className="text-gray-400 hover:text-gray-700 cursor-pointer">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -606,7 +629,7 @@ export default function App() {
                 placeholder="Nueva categoría..."
                 className="flex-1 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 outline-none focus:border-amber-500"
               />
-              <button type="submit" className="px-4 py-2 bg-amber-600 text-white font-bold text-sm rounded-lg hover:bg-amber-700 transition">
+              <button type="submit" className="px-4 py-2 bg-amber-600 text-white font-bold text-sm rounded-lg hover:bg-amber-700 transition cursor-pointer">
                 Crear
               </button>
             </form>
@@ -620,7 +643,7 @@ export default function App() {
                   </div>
                   <button 
                     onClick={() => handleDeleteCategory(cat._id || cat.id)}
-                    className="text-gray-400 hover:text-red-500 transition p-1"
+                    className="text-gray-400 hover:text-red-500 transition p-1 cursor-pointer"
                     title="Eliminar categoría"
                   >
                     <Trash2 className="w-4 h-4" />
