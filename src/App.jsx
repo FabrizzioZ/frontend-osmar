@@ -1,659 +1,87 @@
-import React, { useState, useEffect } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
-import { 
-  Search, Crown, Layers, Clock, Tag, PlusCircle, 
-  ChevronDown, Check, Mail, Lock, X, Trash2, AlertCircle, Upload 
-} from 'lucide-react';
+import { Archive, ArrowDownUp, ArrowLeft, BarChart3, Camera, Check, ChevronDown, CircleDollarSign, Clock3, Grid2X2, Image as ImageIcon, Layers3, LogOut, Menu, Plus, Search, ShieldCheck, SlidersHorizontal, Sparkles, Tag, Trash2, Upload, X } from 'lucide-react';
+import './App.css';
 
 const API_URL = (import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:5000/api' : '')).replace(/\/+$/, '');
-if (!API_URL) throw new Error('Configura VITE_API_URL con la URL del backend antes de compilar para producción.');
 const API_ORIGIN = API_URL.replace(/\/api\/?$/, '');
-
-function getImageUrl(imageUrl) {
-  if (!imageUrl) return 'https://via.placeholder.com/200x250/e2e8f0/cbd5e1?text=Figura';
-  // Normalize URLs saved by the previous local-only backend.
-  if (API_ORIGIN && /^http:\/\/localhost:\d+\/uploads\//.test(imageUrl)) {
-    return `${API_ORIGIN}${imageUrl.replace(/^http:\/\/localhost:\d+/, '')}`;
-  }
-  return imageUrl;
-}
+const EMPTY_FORM = { name: '', category: '', franchise: '', line: '', maker: '', scale: '1/12', condition: 'displayed', costo: '', marketPrice: '', shelfLocation: '', acquisitionDate: '', notes: '', accessories: '', cameraBody: '', lightingSetup: '', images: [] };
+const tokenConfig = () => ({ headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } });
+const currency = (value, currencyCode = 'PEN') => new Intl.NumberFormat('es-PE', { style: 'currency', currency: currencyCode, maximumFractionDigits: 2 }).format(Number(value) || 0);
+const amount = (value) => Number(String(value ?? '').replace(/[^\d.-]/g, '')) || 0;
+function imageUrl(url) { if (!url) return ''; return /^http:\/\/localhost:\d+\//.test(url) ? `${API_ORIGIN}${url.replace(/^http:\/\/localhost:\d+/, '')}` : url; }
+function figurePhotos(figure) { return (figure.photos || []).map((photo) => typeof photo === 'string' ? photo : photo.url).filter(Boolean).map(imageUrl).concat(figure.imageUrl ? [imageUrl(figure.imageUrl)] : []).filter((url, index, all) => all.indexOf(url) === index); }
 
 export default function App() {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [isExiting, setIsExiting] = useState(false);
-  const [isLoginTab, setIsLoginTab] = useState(true);
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [errorMessage, setErrorMessage] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [token, setToken] = useState(() => localStorage.getItem('token'));
+  const [user, setUser] = useState(() => { try { return JSON.parse(localStorage.getItem('user') || 'null'); } catch { return null; } });
+  const [figures, setFigures] = useState([]); const [categories, setCategories] = useState([]);
+  const [page, setPage] = useState('collection'); const [selected, setSelected] = useState(null);
+  const [authMode, setAuthMode] = useState('login'); const [auth, setAuth] = useState({ email: '', password: '' });
+  const [form, setForm] = useState(EMPTY_FORM); const [editId, setEditId] = useState(null);
+  const [query, setQuery] = useState(''); const [category, setCategory] = useState('Todas'); const [sort, setSort] = useState('recent'); const [layout, setLayout] = useState('grid');
+  const [busy, setBusy] = useState(false); const [error, setError] = useState(''); const [notice, setNotice] = useState(''); const [menuOpen, setMenuOpen] = useState(false); const [newCategory, setNewCategory] = useState('');
 
-  const [figures, setFigures] = useState([]);
-  const [categories, setCategories] = useState([]);
-
-  const [newCategoryName, setNewCategoryName] = useState('');
-  const [newCategoryIcon, setNewCategoryIcon] = useState('📦');
-
-  const [searchTerm, setSearchTerm] = useState('');
-  const [sortOption, setSortOption] = useState('Más recientes');
-  const [selectedCategoryFilter, setSelectedCategoryFilter] = useState('Todas las categorías');
-
-  const [showCategoryModal, setShowCategoryModal] = useState(false);
-  const [showAddFigureModal, setShowAddFigureModal] = useState(false);
-  const [showSortDropdown, setShowSortDropdown] = useState(false);
-  const [showCategoryFilterDropdown, setShowCategoryFilterDropdown] = useState(false);
-
-  const [newFigure, setNewFigure] = useState({
-    name: '',
-    category: '',
-    costo: '',
-    valorUsd: '',
-    imageFile: null
-  });
-
-  useEffect(() => {
-    if (isAuthenticated) {
-      fetchFigures();
-      fetchCategories();
-    }
-  }, [isAuthenticated]);
-
-  const fetchFigures = async () => {
+  const loadData = useCallback(async () => {
+    if (!token) return;
     try {
-      const token = localStorage.getItem('token');
-      const response = await axios.get(`${API_URL}/figures`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      setFigures(response.data);
-    } catch (error) {
-      console.error("Error al cargar figuras:", error);
-    }
-  };
+      const [figuresRes, categoriesRes] = await Promise.all([axios.get(`${API_URL}/figures`, tokenConfig()), axios.get(`${API_URL}/categories`, tokenConfig())]);
+      setFigures(figuresRes.data); setCategories(categoriesRes.data);
+    } catch (err) { if (err.response?.status === 401) { localStorage.removeItem('token'); localStorage.removeItem('user'); setToken(null); } else setError(err.response?.data?.message || 'No se pudieron cargar los datos. Revisa la conexión con el servidor.'); }
+  }, [token]);
+  // oxlint-disable-next-line react/set-state-in-effect -- synchronizes the view with the authenticated API.
+  useEffect(() => { loadData(); }, [loadData]);
+  useEffect(() => { if (!notice) return undefined; const id = setTimeout(() => setNotice(''), 3600); return () => clearTimeout(id); }, [notice]);
 
-  const fetchCategories = async () => {
+  const visibleFigures = useMemo(() => figures.filter((figure) => {
+    const text = [figure.name, figure.category, figure.franchise, figure.line, figure.maker, figure.shelfLocation].join(' ').toLowerCase();
+    return text.includes(query.toLowerCase()) && (category === 'Todas' || figure.category === category);
+  }).sort((a, b) => sort === 'name' ? a.name.localeCompare(b.name) : sort === 'price' ? amount(b.marketPrice || b.costo) - amount(a.marketPrice || a.costo) : new Date(b.createdAt || 0) - new Date(a.createdAt || 0)), [figures, query, category, sort]);
+  const totalValue = figures.reduce((sum, figure) => sum + amount(figure.marketPrice || figure.costo), 0);
+  const totalPhotos = figures.reduce((sum, figure) => sum + figurePhotos(figure).length, 0);
+
+  const submitAuth = async (event) => {
+    event.preventDefault(); setBusy(true); setError('');
     try {
-      const token = localStorage.getItem('token');
-      const response = await axios.get(`${API_URL}/categories`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      setCategories(response.data);
-      if (response.data.length > 0 && !newFigure.category) {
-        setNewFigure(prev => ({ ...prev, category: response.data[0].name }));
-      }
-    } catch (error) {
-      console.error("Error al cargar categorías:", error);
-    }
+      const response = await axios.post(`${API_URL}/auth/${authMode}`, auth);
+      localStorage.setItem('token', response.data.token); localStorage.setItem('user', JSON.stringify(response.data.user || { email: auth.email })); setUser(response.data.user || { email: auth.email }); setToken(response.data.token); setNotice('Bienvenido a tu vitrina.');
+    } catch (err) { setError(err.response?.data?.message || 'No se pudo conectar con el servidor. Verifica tus datos e inténtalo de nuevo.'); }
+    finally { setBusy(false); }
   };
-
-  const handleAuthSubmit = async (e) => {
-    e.preventDefault();
-    setErrorMessage('');
-    setLoading(true);
-
+  const signOut = () => { localStorage.removeItem('token'); localStorage.removeItem('user'); setToken(null); setUser(null); setFigures([]); setCategories([]); setPage('collection'); };
+  const startNew = () => { setForm({ ...EMPTY_FORM, category: categories[0]?.name || '' }); setEditId(null); setError(''); setPage('new'); };
+  const startEdit = (figure) => { setForm({ ...EMPTY_FORM, ...figure, accessories: Array.isArray(figure.accessories) ? figure.accessories.join(', ') : figure.accessories || '', images: [] }); setEditId(figure._id); setError(''); setPage('new'); };
+  const saveFigure = async (event) => {
+    event.preventDefault(); setBusy(true); setError('');
     try {
-      const endpoint = isLoginTab ? `${API_URL}/auth/login` : `${API_URL}/auth/register`;
-      const response = await axios.post(endpoint, { email, password });
-
-      if (response.data.token || response.status === 200 || response.status === 201) {
-        if (response.data.token) {
-          localStorage.setItem('token', response.data.token);
-        }
-        
-        // 1. Activamos la animación de vuelo hacia arriba
-        setIsExiting(true);
-        
-        // 2. Esperamos exactamente 600ms a que termine la animación antes de cambiar de página
-        setTimeout(() => {
-          setIsAuthenticated(true);
-        }, 600);
-      }
-    } catch (error) {
-      console.error("Error en autenticación:", error);
-      setErrorMessage(
-        error.response?.data?.message || 
-        'No se pudo conectar con el servidor. Verifica la conexión e inténtalo de nuevo.'
-      );
-      setLoading(false);
-    }
+      const data = new FormData();
+      Object.entries(form).forEach(([key, value]) => { if (key === 'images') value.forEach((file) => data.append('images', file)); else if (key === 'accessories') data.append(key, value.split(',').map((item) => item.trim()).filter(Boolean).join('|')); else data.append(key, value ?? ''); });
+      const url = `${API_URL}/figures${editId ? `/${editId}` : ''}`;
+      if (editId) await axios.put(url, data, tokenConfig()); else await axios.post(url, data, tokenConfig());
+      await loadData(); setNotice(editId ? 'Figura actualizada.' : 'Figura guardada en tu colección.'); setPage('collection'); setEditId(null); setForm(EMPTY_FORM);
+    } catch (err) { setError(err.response?.data?.message || 'No se pudo guardar la figura. Revisa los campos e inténtalo de nuevo.'); }
+    finally { setBusy(false); }
   };
+  const deleteFigure = async (figure) => { if (!window.confirm(`¿Eliminar “${figure.name}” de tu colección?`)) return; try { await axios.delete(`${API_URL}/figures/${figure._id}`, tokenConfig()); setFigures((items) => items.filter((item) => item._id !== figure._id)); setPage('collection'); setNotice('Figura eliminada.'); } catch (err) { setError(err.response?.data?.message || 'No se pudo eliminar la figura.'); } };
+  const addCategory = async (event) => { event?.preventDefault(); if (!newCategory.trim()) return; try { const response = await axios.post(`${API_URL}/categories`, { name: newCategory.trim(), icon: '✦' }, tokenConfig()); setCategories((items) => [...items, response.data]); setForm((current) => ({ ...current, category: current.category || response.data.name })); setNewCategory(''); setNotice('Línea añadida.'); } catch (err) { setError(err.response?.data?.message || 'No se pudo crear la línea.'); } };
+  const goDetail = (figure) => { setSelected(figure); setPage('detail'); };
+  const exportCollection = () => { const blob = new Blob([JSON.stringify(figures, null, 2)], { type: 'application/json' }); const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = 'mi-vitrina.json'; link.click(); URL.revokeObjectURL(link.href); };
 
-  const handleCostoChange = (e) => {
-    const costoSoles = e.target.value;
-    
-    if (costoSoles === '') {
-      setNewFigure(prev => ({ ...prev, costo: '', valorUsd: '' }));
-      return;
-    }
+  if (!token) return <main className="auth-layout"><section className="auth-art"><div className="auth-brand"><span className="brand-mark"><Archive size={19} /></span><span><b>Mi Vitrina</b><small>COLECCIÓN & FOTOTECA</small></span></div><div className="auth-copy"><span className="eyebrow"><Sparkles size={15} /> TU COLECCIÓN, EN UN SOLO LUGAR</span><h1>Las piezas que amas<br />merecen <em>su vitrina.</em></h1><p>Catalogá tus figuras, conserva sus historias y organiza cada sesión fotográfica con detalle.</p></div><div className="auth-image"><img src="https://images.unsplash.com/photo-1608889175123-8ee362201f81?auto=format&fit=crop&w=1200&q=85" alt="Figura de colección en una vitrina" /><span>Una colección con historia</span></div><span className="auth-foot">HECHO PARA QUIENES COLECCIONAN CON PASIÓN</span></section><section className="auth-panel"><div className="auth-form-wrap"><div className="mobile-brand"><span className="brand-mark"><Archive size={19} /></span><b>Mi Vitrina</b></div><span className="eyebrow">BIENVENIDO A CASA</span><h2>Acceso a Vitrina</h2><p className="muted">Entra a tu espacio personal de colección.</p><div className="auth-tabs"><button className={authMode === 'login' ? 'active' : ''} onClick={() => { setAuthMode('login'); setError(''); }}>Iniciar sesión</button><button className={authMode === 'register' ? 'active' : ''} onClick={() => { setAuthMode('register'); setError(''); }}>Crear cuenta</button></div>{error && <div className="alert error"><ShieldCheck size={17} />{error}</div>}<form onSubmit={submitAuth} className="stack-form"><label>Correo electrónico<input type="email" required autoComplete="email" placeholder="tu@correo.com" value={auth.email} onChange={(e) => setAuth({ ...auth, email: e.target.value })} /></label><label>Contraseña<input type="password" required minLength="6" autoComplete={authMode === 'login' ? 'current-password' : 'new-password'} placeholder="Mínimo 6 caracteres" value={auth.password} onChange={(e) => setAuth({ ...auth, password: e.target.value })} /></label><button className="button primary full" disabled={busy}>{busy ? 'Un momento…' : authMode === 'login' ? 'Entrar a mi vitrina' : 'Crear mi cuenta'}<ChevronDown size={16} className="rotate-neg" /></button></form><p className="auth-note"><ShieldCheck size={15} /> Tus piezas y fotografías son privadas y solo tú puedes verlas.</p></div></section></main>;
 
-    const numSoles = parseFloat(costoSoles);
-    if (!isNaN(numSoles)) {
-      const calculoUsd = (numSoles / 3.47).toFixed(2);
-      setNewFigure(prev => ({
-        ...prev,
-        costo: costoSoles,
-        valorUsd: calculoUsd
-      }));
-    } else {
-      setNewFigure(prev => ({ ...prev, costo: costoSoles }));
-    }
-  };
-
-  const handleAddFigureSubmit = async (e) => {
-    e.preventDefault();
-    if (!newFigure.name || !newFigure.costo) return;
-
-    try {
-      const token = localStorage.getItem('token');
-      const formData = new FormData();
-      formData.append('name', newFigure.name);
-      formData.append('category', newFigure.category || (categories[0]?.name ?? 'General'));
-      formData.append('costo', `S/${newFigure.costo}`);
-      formData.append('valorUsd', `$ ${newFigure.valorUsd || '0.00'}`);
-      
-      if (newFigure.imageFile) {
-        formData.append('image', newFigure.imageFile);
-      }
-
-      const response = await axios.post(`${API_URL}/figures`, formData, {
-        headers: { 
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'multipart/form-data'
-        }
-      });
-
-      setFigures([response.data, ...figures]);
-      setNewFigure({ name: '', category: categories[0]?.name || '', costo: '', valorUsd: '', imageFile: null });
-      setShowAddFigureModal(false);
-    } catch (error) {
-      console.error("Error al guardar figura:", error);
-    }
-  };
-
-  const handleDeleteFigure = async (id) => {
-    try {
-      const token = localStorage.getItem('token');
-      await axios.delete(`${API_URL}/figures/${id}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      setFigures(figures.filter(fig => fig._id !== id && fig.id !== id));
-    } catch (error) {
-      console.error("Error al eliminar figura:", error);
-    }
-  };
-
-  const handleAddCategory = async (e) => {
-    e.preventDefault();
-    if (!newCategoryName) return;
-
-    try {
-      const token = localStorage.getItem('token');
-      const response = await axios.post(`${API_URL}/categories`, {
-        name: newCategoryName,
-        icon: newCategoryIcon
-      }, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-
-      setCategories([...categories, response.data]);
-      setNewCategoryName('');
-      setNewCategoryIcon('📦');
-    } catch (error) {
-      console.error("Error al crear categoría:", error);
-    }
-  };
-
-  const handleDeleteCategory = async (id) => {
-    try {
-      const token = localStorage.getItem('token');
-      await axios.delete(`${API_URL}/categories/${id}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      setCategories(categories.filter(cat => cat._id !== id && cat.id !== id));
-    } catch (error) {
-      console.error("Error al eliminar categoría:", error);
-    }
-  };
-
-  const filteredFigures = figures.filter(fig => {
-    const matchesSearch = fig.name.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesCategory = selectedCategoryFilter === 'Todas las categorías' || fig.category === selectedCategoryFilter;
-    return matchesSearch && matchesCategory;
-  }).sort((a, b) => {
-    const priceA = parseFloat(String(a.costo).replace(/[^0-9.]/g, '')) || 0;
-    const priceB = parseFloat(String(b.costo).replace(/[^0-9.]/g, '')) || 0;
-
-    if (sortOption === 'Más recientes') {
-      return new Date(b.createdAt || 0) - new Date(a.createdAt || 0);
-    }
-    if (sortOption === 'Más antiguas') {
-      return new Date(a.createdAt || 0) - new Date(b.createdAt || 0);
-    }
-    if (sortOption === 'Mayor precio') {
-      return priceB - priceA;
-    }
-    if (sortOption === 'Menor precio') {
-      return priceA - priceB;
-    }
-    if (sortOption === 'Nombre A-Z') {
-      return a.name.localeCompare(b.name);
-    }
-    if (sortOption === 'Nombre Z-A') {
-      return b.name.localeCompare(a.name);
-    }
-    return 0;
-  });
-
-  if (!isAuthenticated) {
-    return (
-      <div className="min-h-screen gamer-bg flex items-center justify-center p-4 relative overflow-hidden">
-        {/* Se aplica la clase animate-fly-up cuando isExiting pasa a true */}
-        <div className={`w-full max-w-md bg-white border border-gray-200 rounded-2xl p-8 shadow-2xl relative z-10 ${isExiting ? 'animate-fly-up' : 'animate-zoom-in'}`}>
-          <h1 className="text-4xl font-extrabold text-center tracking-wider mb-1 text-gray-900 animate-fade-in-down">
-            Osmar Figuras V2
-          </h1>
-          <p className="text-center text-gray-500 text-xs tracking-widest uppercase mb-6 animate-fade-in-down">
-            Accede a tu colección personal
-          </p>
-
-          {errorMessage && (
-            <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2 text-red-600 text-xs">
-              <AlertCircle className="w-4 h-4 flex-shrink-0" />
-              <span>{errorMessage}</span>
-            </div>
-          )}
-
-          <div className="flex border-b border-gray-200 mb-6">
-            <button 
-              onClick={() => { setIsLoginTab(true); setErrorMessage(''); }}
-              className={`flex-1 pb-3 font-semibold text-sm transition-all ${isLoginTab ? 'text-amber-600 border-b-2 border-amber-600' : 'text-gray-500 hover:text-gray-800'}`}
-            >
-              Iniciar Sesión
-            </button>
-            <button 
-              onClick={() => { setIsLoginTab(false); setErrorMessage(''); }}
-              className={`flex-1 pb-3 font-semibold text-sm transition-all ${!isLoginTab ? 'text-amber-600 border-b-2 border-amber-600' : 'text-gray-500 hover:text-gray-800'}`}
-            >
-              Registrarse
-            </button>
-          </div>
-
-          <form onSubmit={handleAuthSubmit} className="space-y-4">
-            <div>
-              <label className="text-xs text-gray-700 block mb-1 font-medium">Correo electrónico</label>
-              <div className="relative">
-                <Mail className="w-4 h-4 text-gray-400 absolute left-3 top-3" />
-                <input 
-                  type="email" 
-                  required 
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="tucorreo@gmail.com"
-                  className="w-full bg-gray-50 border border-gray-200 rounded-lg pl-10 pr-4 py-2.5 text-sm text-gray-900 outline-none focus:border-amber-500"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label className="text-xs text-gray-700 block mb-1 font-medium">Contraseña</label>
-              <div className="relative">
-                <Lock className="w-4 h-4 text-gray-400 absolute left-3 top-3" />
-                <input 
-                  type="password" 
-                  required
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="********"
-                  className="w-full bg-gray-50 border border-gray-200 rounded-lg pl-10 pr-4 py-2.5 text-sm text-gray-900 outline-none focus:border-amber-500"
-                />
-              </div>
-            </div>
-
-            <button 
-              type="submit" 
-              disabled={loading}
-              className="w-full py-3 mt-2 bg-gradient-to-r from-amber-500 to-yellow-500 text-white font-bold text-sm rounded-lg shadow-md hover:shadow-lg transition cursor-pointer"
-            >
-              {loading ? 'Conectando...' : (isLoginTab ? 'Entrar' : 'Registrar Cuenta')}
-            </button>
-          </form>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="min-h-screen bg-[#f8fafc] text-gray-800 flex">
-      {/* BARRA LATERAL BEIGE CON ANIMACIÓN DE ENTRADA Y BOTONES FLOTANTES */}
-      <aside className="w-64 border-r border-amber-900/10 p-5 flex flex-col justify-between min-h-screen bg-[#f5f2eb] animate-slide-in-up">
-        <div>
-          <div className="flex items-center gap-2 mb-8 animate-floating">
-            <Crown className="w-5 h-5 text-amber-600" />
-            <div>
-              <span className="font-bold text-sm block leading-tight text-gray-900">Osmar Figuras</span>
-              <span className="text-[10px] text-gray-500 tracking-wider">COLLECTION MANAGER</span>
-            </div>
-          </div>
-
-          <div className="space-y-3">
-            <div className="relative animate-floating" style={{ animationDelay: '0.1s' }}>
-              <button 
-                onClick={() => setShowCategoryFilterDropdown(!showCategoryFilterDropdown)}
-                className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-lg border border-amber-900/10 text-sm font-medium bg-white text-gray-800 shadow-sm hover:shadow-md transition cursor-pointer"
-              >
-                <span className="truncate">{selectedCategoryFilter}</span>
-                <ChevronDown className="w-4 h-4 text-gray-500 flex-shrink-0" />
-              </button>
-
-              {showCategoryFilterDropdown && (
-                <div className="absolute left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-xl z-30 py-1 max-h-60 overflow-y-auto">
-                  <div 
-                    onClick={() => { setSelectedCategoryFilter('Todas las categorías'); setShowCategoryFilterDropdown(false); }}
-                    className="px-4 py-2 hover:bg-gray-100 cursor-pointer text-sm flex items-center justify-between text-gray-800"
-                  >
-                    <span>Todas las categorías</span>
-                    {selectedCategoryFilter === 'Todas las categorías' && <Check className="w-4 h-4 text-amber-600" />}
-                  </div>
-                  {categories.map(cat => (
-                    <div 
-                      key={cat._id || cat.id}
-                      onClick={() => { setSelectedCategoryFilter(cat.name); setShowCategoryFilterDropdown(false); }}
-                      className="px-4 py-2 hover:bg-gray-100 cursor-pointer text-sm flex items-center justify-between text-gray-800"
-                    >
-                      <div className="flex items-center gap-2 truncate">
-                        <span>{cat.icon}</span>
-                        <span className="truncate">{cat.name}</span>
-                      </div>
-                      {selectedCategoryFilter === cat.name && <Check className="w-4 h-4 text-amber-600 flex-shrink-0" />}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <div className="relative animate-floating" style={{ animationDelay: '0.2s' }}>
-              <button 
-                onClick={() => setShowSortDropdown(!showSortDropdown)}
-                className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-lg border border-amber-900/10 text-sm font-medium bg-white text-gray-800 shadow-sm hover:shadow-md transition cursor-pointer"
-              >
-                <div className="flex items-center gap-2 truncate">
-                  <Clock className="w-4 h-4 text-gray-500 flex-shrink-0" />
-                  <span className="truncate">{sortOption}</span>
-                </div>
-                <ChevronDown className="w-4 h-4 text-gray-500 flex-shrink-0" />
-              </button>
-
-              {showSortDropdown && (
-                <div className="absolute left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-xl z-30 py-1 text-sm">
-                  {['Más recientes', 'Más antiguas', 'Mayor precio', 'Menor precio', 'Nombre A-Z', 'Nombre Z-A'].map(opt => (
-                    <div 
-                      key={opt}
-                      onClick={() => { setSortOption(opt); setShowSortDropdown(false); }}
-                      className="px-4 py-2 hover:bg-gray-100 cursor-pointer flex items-center justify-between text-gray-800"
-                    >
-                      <span className={sortOption === opt ? 'text-amber-600 font-medium' : 'text-gray-700'}>{opt}</span>
-                      {sortOption === opt && <Check className="w-4 h-4 text-amber-600" />}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <div className="animate-floating" style={{ animationDelay: '0.3s' }}>
-              <button 
-                onClick={() => setShowCategoryModal(true)}
-                className="w-full flex items-center gap-2 px-3.5 py-2.5 rounded-lg border border-amber-900/10 text-sm font-medium bg-white text-gray-800 hover:bg-gray-50 shadow-sm transition cursor-pointer"
-              >
-                <Tag className="w-4 h-4 text-gray-500" />
-                <span>Categorías</span>
-              </button>
-            </div>
-
-            <div className="animate-floating" style={{ animationDelay: '0.4s' }}>
-              <button 
-                onClick={() => setShowAddFigureModal(true)}
-                className="w-full mt-2 flex items-center justify-center gap-2 px-3.5 py-3 rounded-lg border border-amber-600/40 text-amber-700 bg-amber-50/50 hover:bg-amber-100/50 transition text-sm font-semibold shadow-sm cursor-pointer"
-              >
-                <PlusCircle className="w-4 h-4" />
-                <span>+ Agregar Figura</span>
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <div className="pt-4 border-t border-amber-900/10 text-[11px] text-gray-500 text-center">
-          © 2026 Osmar Figuras
-        </div>
-      </aside>
-
-      {/* CONTENIDO PRINCIPAL */}
-      <main className="flex-1 p-8 overflow-y-auto">
-        <h1 className="text-5xl font-black text-center mb-8 tracking-wide text-gray-900 animate-slide-in-up">
-          Osmar Figuras
-        </h1>
-
-        <div className="max-w-2xl mx-auto mb-8 relative">
-          <Search className="w-5 h-5 text-gray-400 absolute left-4 top-3.5" />
-          <input 
-            type="text" 
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Buscar figuras por nombre..."
-            className="w-full bg-white border border-gray-200 rounded-xl pl-12 pr-4 py-3 text-sm text-gray-900 shadow-sm outline-none focus:border-amber-500 transition"
-          />
-        </div>
-
-        <div className="grid grid-cols-2 gap-4 max-w-2xl mx-auto mb-8">
-          <div className="bg-white border border-gray-200 rounded-xl p-4 flex justify-between items-start shadow-sm">
-            <div>
-              <span className="text-[11px] font-bold text-gray-500 uppercase">TOTAL FIGURAS:</span>
-              <span className="text-3xl font-extrabold text-gray-900 block mt-1">{filteredFigures.length}</span>
-            </div>
-            <div className="p-2 bg-gray-100 rounded-lg">
-              <Layers className="w-5 h-5 text-gray-500" />
-            </div>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2 mb-6">
-          <Layers className="w-5 h-5 text-amber-600" />
-          <h2 className="text-lg font-bold text-gray-900">Mi Almacén</h2>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-          {filteredFigures.map(fig => (
-            <div key={fig._id || fig.id} className="bg-white border border-gray-200 rounded-xl overflow-hidden flex flex-col justify-between relative group shadow-sm">
-              <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition z-10 flex gap-1">
-                <button 
-                  onClick={() => handleDeleteFigure(fig._id || fig.id)}
-                  className="p-1.5 bg-red-600/80 hover:bg-red-600 text-white rounded-lg backdrop-blur-sm transition cursor-pointer"
-                  title="Eliminar figura"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              </div>
-
-              <div className="h-56 bg-gray-100 relative overflow-hidden flex items-center justify-center p-2">
-                <img 
-                  src={getImageUrl(fig.imageUrl)} 
-                  alt={fig.name} 
-                  className="h-full object-contain hover:scale-105 transition duration-300" 
-                />
-                <span className="absolute top-2 left-2 text-[10px] bg-black/60 backdrop-blur-md text-white px-2 py-0.5 rounded border border-white/10">
-                  {fig.category}
-                </span>
-              </div>
-              <div className="p-4 border-t border-gray-100">
-                <h3 className="font-semibold text-sm text-gray-900 truncate mb-3">{fig.name}</h3>
-                <div className="flex justify-between items-center text-xs">
-                  <div>
-                    <span className="text-[10px] text-gray-500 block uppercase">COSTO</span>
-                    <span className="font-bold text-gray-900">{fig.costo}</span>
-                  </div>
-                  <div className="text-right">
-                    <span className="text-[10px] text-gray-500 block uppercase">VALOR USD</span>
-                    <span className="font-bold text-amber-600">{fig.valorUsd}</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      </main>
-
-      {/* MODAL: AGREGAR FIGURA */}
-      {showAddFigureModal && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="w-full max-w-lg bg-white border border-gray-200 rounded-2xl p-6 shadow-2xl relative">
-            <div className="flex justify-between items-center mb-6">
-              <div className="flex items-center gap-2">
-                <PlusCircle className="w-5 h-5 text-amber-600" />
-                <h3 className="text-lg font-bold text-gray-900">Agregar Nueva Figura</h3>
-              </div>
-              <button onClick={() => setShowAddFigureModal(false)} className="text-gray-400 hover:text-gray-700 cursor-pointer">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <form onSubmit={handleAddFigureSubmit} className="space-y-4">
-              <div>
-                <label className="text-xs text-gray-700 block mb-1 font-medium">Nombre de la figura</label>
-                <input 
-                  type="text" 
-                  required
-                  value={newFigure.name}
-                  onChange={(e) => setNewFigure({...newFigure, name: e.target.value})}
-                  placeholder="Ej: Goku Super Saiyan"
-                  className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 outline-none focus:border-amber-500"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="text-xs text-gray-700 block mb-1 font-medium">Categoría</label>
-                  <select 
-                    value={newFigure.category}
-                    onChange={(e) => setNewFigure({...newFigure, category: e.target.value})}
-                    className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 outline-none focus:border-amber-500 cursor-pointer"
-                  >
-                    {categories.map(cat => (
-                      <option key={cat._id || cat.id} value={cat.name}>{cat.name}</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="text-xs text-gray-700 block mb-1 font-medium">Costo en Soles (S/)</label>
-                  <input 
-                    type="number" 
-                    step="0.01"
-                    required
-                    value={newFigure.costo}
-                    onChange={handleCostoChange}
-                    placeholder="200.00"
-                    className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 outline-none focus:border-amber-500"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="text-xs text-gray-700 block mb-1 font-medium">Valor USD ($) (Auto a 3.47)</label>
-                  <input 
-                    type="text" 
-                    readOnly
-                    value={newFigure.valorUsd ? `$ ${newFigure.valorUsd}` : ''}
-                    placeholder="$ 0.00"
-                    className="w-full bg-gray-100 border border-gray-200 rounded-lg px-3 py-2 text-sm text-amber-600 font-bold outline-none cursor-not-allowed"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs text-gray-700 block mb-1 font-medium">Subir Foto</label>
-                  <label className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-700 flex items-center justify-between cursor-pointer hover:border-amber-500 transition">
-                    <span className="truncate">{newFigure.imageFile ? newFigure.imageFile.name : 'Seleccionar archivo...'}</span>
-                    <Upload className="w-4 h-4 text-amber-600 flex-shrink-0" />
-                    <input 
-                      type="file" 
-                      accept="image/*"
-                      onChange={(e) => setNewFigure({...newFigure, imageFile: e.target.files[0]})}
-                      className="hidden"
-                    />
-                  </label>
-                </div>
-              </div>
-
-              <div className="pt-4 flex justify-end gap-3">
-                <button 
-                  type="button"
-                  onClick={() => setShowAddFigureModal(false)}
-                  className="px-4 py-2 rounded-lg border border-gray-200 text-gray-700 text-sm hover:bg-gray-100 transition cursor-pointer"
-                >
-                  Cancelar
-                </button>
-                <button 
-                  type="submit"
-                  className="px-5 py-2 rounded-lg bg-amber-600 text-white font-bold text-sm hover:bg-amber-700 transition cursor-pointer"
-                >
-                  Guardar Figura
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL: GESTIONAR CATEGORÍAS */}
-      {showCategoryModal && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="w-full max-w-md bg-white border border-gray-200 rounded-2xl p-6 shadow-2xl relative">
-            <div className="flex justify-between items-center mb-6">
-              <div className="flex items-center gap-2">
-                <Tag className="w-5 h-5 text-amber-600" />
-                <h3 className="text-lg font-bold text-gray-900">Gestionar Categorías</h3>
-              </div>
-              <button onClick={() => setShowCategoryModal(false)} className="text-gray-400 hover:text-gray-700 cursor-pointer">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <form onSubmit={handleAddCategory} className="mb-6 flex gap-2">
-              <input 
-                type="text" 
-                value={newCategoryIcon}
-                onChange={(e) => setNewCategoryIcon(e.target.value)}
-                placeholder="Icono"
-                className="w-16 bg-gray-50 border border-gray-200 rounded-lg px-2 py-2 text-center text-sm text-gray-900 outline-none focus:border-amber-500"
-              />
-              <input 
-                type="text" 
-                required
-                value={newCategoryName}
-                onChange={(e) => setNewCategoryName(e.target.value)}
-                placeholder="Nueva categoría..."
-                className="flex-1 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 outline-none focus:border-amber-500"
-              />
-              <button type="submit" className="px-4 py-2 bg-amber-600 text-white font-bold text-sm rounded-lg hover:bg-amber-700 transition cursor-pointer">
-                Crear
-              </button>
-            </form>
-
-            <div className="space-y-2 max-h-60 overflow-y-auto">
-              {categories.map(cat => (
-                <div key={cat._id || cat.id} className="flex items-center justify-between p-3 bg-gray-50 border border-gray-200 rounded-xl">
-                  <div className="flex items-center gap-3 truncate">
-                    <span className="text-lg flex-shrink-0">{cat.icon}</span>
-                    <span className="font-semibold text-sm text-gray-900 truncate">{cat.name}</span>
-                  </div>
-                  <button 
-                    onClick={() => handleDeleteCategory(cat._id || cat.id)}
-                    className="text-gray-400 hover:text-red-500 transition p-1 cursor-pointer"
-                    title="Eliminar categoría"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
+  const nav = [{ id: 'collection', label: 'Mi Vitrina', icon: Grid2X2 }, { id: 'new', label: 'Nueva Figura', icon: Plus }, { id: 'gallery', label: 'Fototeca', icon: Camera }, { id: 'stats', label: 'Estadísticas', icon: BarChart3 }];
+  const current = page === 'detail' ? selected : null;
+  return <div className="app-shell"><header className="topbar"><button className="icon-button mobile-menu" onClick={() => setMenuOpen(!menuOpen)} aria-label="Abrir menú"><Menu /></button><button className="brand" onClick={() => setPage('collection')}><span className="brand-mark"><Archive size={18} /></span><span><b>Mi Vitrina</b><small>COLECCIÓN & FOTOTECA</small></span></button><nav className={menuOpen ? 'nav open' : 'nav'}>{nav.map(({ id, label, icon: Icon }) => <button key={id} onClick={() => { if (id === 'new') startNew(); else setPage(id); setMenuOpen(false); }} className={(page === id || (page === 'detail' && id === 'collection')) ? 'nav-link active' : 'nav-link'}><Icon size={16} />{label}</button>)}</nav><div className="top-actions"><label className="top-search"><Search size={17} /><input placeholder="Buscar en mi colección…" value={query} onChange={(e) => setQuery(e.target.value)} /></label><span className="user-chip"><span className="avatar">{(user?.email || 'C').slice(0, 1).toUpperCase()}</span><span className="user-email">{user?.email || 'Coleccionista'}</span></span><button className="icon-button logout" onClick={signOut} title="Cerrar sesión"><LogOut size={17} /></button></div></header>
+    <main className="main-content">{error && <div className="alert error global-alert"><ShieldCheck size={17} />{error}<button onClick={() => setError('')}><X size={15} /></button></div>}{notice && <div className="toast"><Check size={16} />{notice}</div>}
+      {page === 'collection' && <><section className="page-heading"><div><span className="eyebrow"><span className="live-dot" /> COLECCIÓN ACTIVA · GALERÍA PERSONAL</span><h1>Mi Colección de Figuras</h1><p className="muted">Registro visual, estado de conservación y fototeca técnica de tus piezas.</p></div><div className="heading-actions"><button className="button soft" onClick={exportCollection}><Archive size={16} /> Exportar registro</button><button className="button primary" onClick={startNew}><Plus size={17} /> Registrar figura</button></div></section><section className="metrics"><Metric icon={Layers3} label="Figuras catalogadas" value={figures.length} note="en tu colección" /><Metric icon={Camera} label="Fotografías" value={totalPhotos} note="en tu fototeca" /><Metric icon={CircleDollarSign} label="Valor estimado" value={currency(totalValue)} note="valor de mercado" /><Metric icon={Clock3} label="Línea más reciente" value={figures[0]?.name || 'Aún vacía'} note={figures.length ? 'última incorporación' : 'registra tu primera pieza'} /></section><section className="collection-controls"><div className="category-row"><span className="control-label">LÍNEA:</span><button className={category === 'Todas' ? 'pill active' : 'pill'} onClick={() => setCategory('Todas')}>Todas <span>{figures.length}</span></button>{categories.map((item) => <button className={category === item.name ? 'pill active' : 'pill'} key={item._id} onClick={() => setCategory(item.name)}>{item.name} <span>{figures.filter((figure) => figure.category === item.name).length}</span></button>)}<span className="results-count">{visibleFigures.length} piezas</span></div><div className="filter-row"><label className="select-control"><SlidersHorizontal size={15} /><select value={category} onChange={(e) => setCategory(e.target.value)}><option value="Todas">Todas las líneas</option>{categories.map((item) => <option key={item._id} value={item.name}>{item.name}</option>)}</select></label><label className="select-control"><ArrowDownUp size={15} /><select value={sort} onChange={(e) => setSort(e.target.value)}><option value="recent">Más recientes</option><option value="name">Nombre A–Z</option><option value="price">Mayor valor</option></select></label><button className={layout === 'grid' ? 'icon-button selected' : 'icon-button'} onClick={() => setLayout('grid')} aria-label="Vista en cuadrícula"><Grid2X2 size={17} /></button><button className={layout === 'list' ? 'icon-button selected' : 'icon-button'} onClick={() => setLayout('list')} aria-label="Vista en lista"><Menu size={17} /></button></div></section>{visibleFigures.length ? <section className={layout === 'grid' ? 'figure-grid' : 'figure-list'}>{visibleFigures.map((figure) => <FigureCard key={figure._id} figure={figure} onOpen={() => goDetail(figure)} />)}</section> : <EmptyState onAdd={startNew} hasItems={figures.length > 0} />}</>}
+      {page === 'new' && <><button className="back-link" onClick={() => setPage('collection')}><ArrowLeft size={16} /> Volver a Mi Vitrina</button><section className="page-heading compact"><div><span className="eyebrow">{editId ? 'ACTUALIZAR PIEZA' : 'NUEVO REGISTRO'}</span><h1>{editId ? 'Editar figura' : 'Registro y Galería de Figura'}</h1><p className="muted">Documenta los detalles de la pieza y añade fotografías a su ficha.</p></div></section><form className="figure-form" onSubmit={saveFigure}><div className="form-main"><section className="form-card"><div className="section-title"><span className="section-icon"><ImageIcon size={18} /></span><div><h2>Captura & revelado</h2><p>Añade las fotos de la figura a su galería.</p></div></div><label className="upload-zone"><input type="file" accept="image/*" multiple onChange={(e) => setForm({ ...form, images: [...form.images, ...Array.from(e.target.files || [])] })} /><span className="upload-icon"><Upload size={20} /></span><b>Arrastra fotografías o haz clic para subir</b><small>JPG, PNG o WEBP · hasta 10 MB por imagen</small></label>{form.images.length > 0 && <div className="selected-files">{form.images.map((file, index) => <span key={`${file.name}-${index}`}>{file.name}<button type="button" onClick={() => setForm({ ...form, images: form.images.filter((_, i) => i !== index) })}><X size={13} /></button></span>)}</div>}{editId && figurePhotos(figures.find((figure) => figure._id === editId) || {}).length > 0 && <p className="muted small-note">Las fotografías existentes se conservan. Añade nuevas si lo deseas.</p>}<div className="form-grid two"><Field label="Cámara / lente" placeholder="Ej. Sony A7IV · Macro 90mm" value={form.cameraBody} onChange={(v) => setForm({ ...form, cameraBody: v })} /><Field label="Esquema de iluminación" placeholder="Ej. Softbox + luz de recorte" value={form.lightingSetup} onChange={(v) => setForm({ ...form, lightingSetup: v })} /></div></section><section className="form-card"><div className="section-title"><span className="section-icon"><Tag size={18} /></span><div><h2>Datos técnicos de la pieza</h2><p>La información que hace única a tu figura.</p></div></div><div className="form-grid two"><Field required label="Nombre de la figura" placeholder="Ej. Spider-Man (Traje Simbionte)" value={form.name} onChange={(v) => setForm({ ...form, name: v })} /><Field label="Franquicia" placeholder="Ej. Marvel, Star Wars, DC" value={form.franchise} onChange={(v) => setForm({ ...form, franchise: v })} /><Field label="Línea / número" placeholder="Ej. Mafex #147" value={form.line} onChange={(v) => setForm({ ...form, line: v })} /><Field label="Fabricante" placeholder="Ej. Medicom Toy, Hot Toys" value={form.maker} onChange={(v) => setForm({ ...form, maker: v })} /><label className="field-label">Escala<select value={form.scale} onChange={(e) => setForm({ ...form, scale: e.target.value })}>{['1/6', '1/10', '1/12', '1/18', '1/24', 'Otra'].map((scale) => <option key={scale}>{scale}</option>)}</select></label><label className="field-label">Estado<select value={form.condition} onChange={(e) => setForm({ ...form, condition: e.target.value })}><option value="mint">En caja · impecable</option><option value="displayed">En exhibición</option><option value="custom">Personalizada</option><option value="used">Usada</option></select></label><Field label="Línea / categoría" placeholder="Ej. Marvel Legends" value={form.category} onChange={(v) => setForm({ ...form, category: v })} /><Field label="Ubicación en vitrina" placeholder="Ej. Estante B · Nivel 3" value={form.shelfLocation} onChange={(v) => setForm({ ...form, shelfLocation: v })} /></div><div className="form-grid two money-fields"><Field label="Precio de compra (S/)" type="number" min="0" step="0.01" value={form.costo} onChange={(v) => setForm({ ...form, costo: v })} /><Field label="Valor de mercado (S/)" type="number" min="0" step="0.01" value={form.marketPrice} onChange={(v) => setForm({ ...form, marketPrice: v })} /><Field label="Fecha de adquisición" type="date" value={form.acquisitionDate} onChange={(v) => setForm({ ...form, acquisitionDate: v })} /><Field label="Accesorios (separados por coma)" placeholder="Manos, soporte, rostro extra" value={form.accessories} onChange={(v) => setForm({ ...form, accessories: v })} /></div><label className="field-label notes-field">Notas del coleccionista<textarea rows="4" placeholder="Detalles de conservación, articulaciones, personalizaciones…" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></label></section></div><aside className="form-aside"><div className="form-card aside-card"><span className="eyebrow">ORGANIZA TU VITRINA</span><h2>Líneas de colección</h2><p className="muted">Crea líneas para encontrar tus piezas rápidamente.</p><div className="category-create"><input value={newCategory} onChange={(e) => setNewCategory(e.target.value)} placeholder="Nueva línea…" /><button className="button soft" type="button" onClick={() => addCategory()} aria-label="Crear línea"><Plus size={17} /></button></div><div className="category-list">{categories.map((item) => <span key={item._id}>{item.icon || '✦'} {item.name}</span>)}{!categories.length && <small className="muted">Aún no hay líneas creadas.</small>}</div><div className="aside-tip"><Sparkles size={17} /><span>Un buen registro te ayudará a cuidar y valorar mejor cada pieza.</span></div></div><div className="form-submit"><button className="button primary full" disabled={busy}>{busy ? 'Guardando…' : editId ? 'Guardar cambios' : 'Guardar figura'}<Check size={17} /></button><button type="button" className="button soft full" onClick={() => setPage('collection')}>Cancelar</button></div></aside></form></>}
+      {page === 'gallery' && <><section className="page-heading"><div><span className="eyebrow">ARCHIVO VISUAL · {totalPhotos} FOTOGRAFÍAS</span><h1>Fototeca & Sesiones</h1><p className="muted">Todas las fotografías de tu colección, organizadas por figura.</p></div><button className="button primary" onClick={startNew}><Plus size={17} /> Nueva sesión</button></section>{figures.length ? <div className="photo-wall">{figures.flatMap((figure) => figurePhotos(figure).map((photo, index) => <button className="photo-tile" key={`${figure._id}-${index}`} onClick={() => goDetail(figure)}><img src={photo} alt={`${figure.name} · foto ${index + 1}`} /><span><b>{figure.name}</b><small>{figure.line || figure.category || 'Colección personal'}</small></span></button>))}</div> : <EmptyState onAdd={startNew} hasItems={false} />}</>}
+      {page === 'stats' && <><section className="page-heading"><div><span className="eyebrow">RESUMEN DE COLECCIÓN</span><h1>Estadísticas</h1><p className="muted">Un vistazo a las piezas y el valor de tu vitrina.</p></div><button className="button soft" onClick={exportCollection}><Archive size={16} /> Exportar registro</button></section><section className="metrics stats-metrics"><Metric icon={Layers3} label="Figuras catalogadas" value={figures.length} note="piezas únicas" /><Metric icon={Camera} label="Fotografías" value={totalPhotos} note="imágenes guardadas" /><Metric icon={CircleDollarSign} label="Valor de mercado" value={currency(totalValue)} note="suma de valores estimados" /><Metric icon={Tag} label="Líneas" value={categories.length} note="categorías de colección" /></section><section className="stats-card"><div className="section-title"><span className="section-icon"><BarChart3 size={18} /></span><div><h2>Distribución por línea</h2><p>Cómo se reparte tu colección.</p></div></div>{categories.length ? <div className="bars">{categories.map((item) => { const count = figures.filter((figure) => figure.category === item.name).length; const width = figures.length ? Math.max(count / figures.length * 100, count ? 3 : 0) : 0; return <div className="bar-row" key={item._id}><span>{item.name}</span><div className="bar-track"><i style={{ width: `${width}%` }} /></div><b>{count}</b></div>; })}</div> : <p className="muted">Añade figuras y líneas para ver aquí el resumen de tu colección.</p>}</section></>}
+      {page === 'detail' && current && <><button className="back-link" onClick={() => setPage('collection')}><ArrowLeft size={16} /> Volver a Mi Vitrina</button><section className="detail-layout"><div className="detail-gallery">{figurePhotos(current).length ? <img className="detail-hero" src={figurePhotos(current)[0]} alt={current.name} /> : <div className="detail-placeholder"><ImageIcon size={42} /><span>Sin fotografías</span></div>}{figurePhotos(current).length > 1 && <div className="detail-thumbs">{figurePhotos(current).slice(1).map((photo, index) => <img src={photo} alt={`${current.name} ${index + 2}`} key={index} />)}</div>}</div><div className="detail-info"><span className="eyebrow">{current.maker || 'COLECCIÓN PERSONAL'} · {current.line || current.category || 'FIGURA'}</span><h1>{current.name}</h1><p className="muted">{[current.franchise, current.scale && `Escala ${current.scale}`, current.condition].filter(Boolean).join(' · ')}</p><div className="detail-metrics"><div><small>VALOR DE MERCADO</small><b>{currency(current.marketPrice || current.costo)}</b></div><div><small>PRECIO DE COMPRA</small><b>{currency(current.costo)}</b></div></div><div className="detail-facts">{current.shelfLocation && <p><span>Ubicación</span><b>{current.shelfLocation}</b></p>}{current.acquisitionDate && <p><span>Adquisición</span><b>{current.acquisitionDate}</b></p>}{current.accessories?.length > 0 && <p><span>Accesorios</span><b>{Array.isArray(current.accessories) ? current.accessories.join(', ') : current.accessories}</b></p>}{current.notes && <p className="detail-notes"><span>Notas del coleccionista</span><b>{current.notes}</b></p>}</div><div className="detail-actions"><button className="button primary" onClick={() => startEdit(current)}>Editar ficha</button><button className="button danger" onClick={() => deleteFigure(current)}><Trash2 size={16} /> Eliminar</button></div></div></section></>}
+    </main><footer className="footer"><span>MI VITRINA <i>·</i> TU COLECCIÓN, BIEN CUIDADA</span><span>{figures.length} piezas <i>·</i> {totalPhotos} fotografías</span></footer></div>;
 }
+
+function Metric({ icon: Icon, label, value, note }) { return <article className="metric-card"><div className="metric-top"><span>{label}</span><i><Icon size={17} /></i></div><strong>{value}</strong><small>{note}</small></article>; }
+function Field({ label, value, onChange, placeholder, required = false, type = 'text', ...props }) { return <label className="field-label">{label}<input type={type} required={required} value={value ?? ''} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} {...props} /></label>; }
+function FigureCard({ figure, onOpen }) { const photos = figurePhotos(figure); return <article className="figure-card"><button className="figure-image" onClick={onOpen} aria-label={`Ver ${figure.name}`}>{photos[0] ? <img src={photos[0]} alt={figure.name} loading="lazy" /> : <span className="image-empty"><ImageIcon size={27} /></span>}<span className="figure-tag">{figure.line || figure.category || 'Colección'}</span><span className="photo-count"><Camera size={13} /> {photos.length}</span></button><button className="figure-card-copy" onClick={onOpen}><span className="figure-meta">{figure.maker || figure.franchise || 'FIGURA DE COLECCIÓN'}</span><b>{figure.name}</b><span className="figure-sub">{[figure.franchise, figure.scale && `Escala ${figure.scale}`].filter(Boolean).join(' · ') || figure.condition || 'Ficha de colección'}</span><span className="figure-value">{currency(figure.marketPrice || figure.costo)} <small>valor estimado</small></span></button></article>; }
+function EmptyState({ onAdd, hasItems }) { return <section className="empty-state"><span className="empty-icon"><Archive size={24} /></span><h2>{hasItems ? 'No encontramos coincidencias' : 'Tu vitrina empieza con una pieza'}</h2><p>{hasItems ? 'Prueba otra búsqueda o selecciona una línea distinta.' : 'Registra tu primera figura y crea una fototeca para conservar cada detalle.'}</p>{!hasItems && <button className="button primary" onClick={onAdd}><Plus size={17} /> Registrar primera figura</button>}</section>; }
